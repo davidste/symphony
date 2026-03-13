@@ -83,6 +83,7 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @spec codex_command() :: String.t()
   @spec codex_command(map() | nil) :: String.t()
   def codex_command(issue \\ nil)
 
