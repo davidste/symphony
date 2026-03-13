@@ -17,6 +17,8 @@ description:
 - Push current branch changes to `origin` safely.
 - Create a PR if none exists for the branch, otherwise update the existing PR.
 - Keep branch history clean when remote has moved.
+- Respect repo-specific branch, validation, and PR-body rules from the target
+  repo's `WORKFLOW.md` / `AGENTS.md`.
 
 ## Related Skills
 
@@ -26,7 +28,12 @@ description:
 ## Steps
 
 1. Identify current branch and confirm remote state.
-2. Run local validation (`make -C elixir all`) before pushing.
+2. Run the repo-appropriate validation for the current scope before pushing.
+   - Follow the target repo's `WORKFLOW.md`, `AGENTS.md`, and ticket
+     acceptance criteria.
+   - If the repo documents a narrower validation command for the current scope,
+     use that instead of a repo-wide suite.
+   - Do not invent Symphony-specific validation commands in non-Symphony repos.
 3. Push branch to `origin` with upstream tracking if needed, using whatever
    remote URL is already configured.
 4. If push is not clean/rejected:
@@ -41,18 +48,24 @@ description:
    - If no PR exists, create one.
    - If a PR exists and is open, update it.
    - If branch is tied to a closed/merged PR, create a new branch + PR.
-   - Write a proper PR title that clearly describes the change outcome
+   - Write a proper PR title that clearly describes the change outcome.
    - For branch updates, explicitly reconsider whether current PR title still
      matches the latest scope; update it if it no longer does.
-6. Write/update PR body explicitly using `.github/pull_request_template.md`:
-   - Fill every section with concrete content for this change.
-   - Replace all placeholder comments (`<!-- ... -->`).
-   - Keep bullets/checkboxes where template expects them.
+   - Respect any repo-specific base-branch rule from `WORKFLOW.md`.
+6. Write/update the PR body:
+   - If `.github/pull_request_template.md` exists, use it and fill every
+     section with concrete content for this change.
+   - If no template exists, write a concise body with at least:
+     - `## Summary`
+     - `## Validation`
+     - `## Risks` or `## Notes`
+   - Replace placeholder comments (`<!-- ... -->`) when a template is present.
    - If PR already exists, refresh body content so it reflects the total PR
      scope (all intended work on the branch), not just the newest commits,
      including newly added work, removed work, or changed approach.
    - Do not reuse stale description text from earlier iterations.
-7. Validate PR body with `mix pr_body.check` and fix all reported issues.
+7. If the repo documents a PR-body validator, run it and fix all reported
+   issues. Otherwise, skip validator-specific steps.
 8. Reply with the PR URL from `gh pr view`.
 
 ## Commands
@@ -62,7 +75,7 @@ description:
 branch=$(git branch --show-current)
 
 # Minimal validation gate
-make -C elixir all
+# Run the repo-appropriate validation command(s) for this change.
 
 # Initial push: respect the current origin remote.
 git push -u origin HEAD
@@ -84,25 +97,25 @@ if [ "$pr_state" = "MERGED" ] || [ "$pr_state" = "CLOSED" ]; then
   exit 1
 fi
 
+# Optional: repo-specific PR base from WORKFLOW.md / AGENTS.md.
+pr_base=""
+
 # Write a clear, human-friendly title that summarizes the shipped change.
 pr_title="<clear PR title written for this change>"
 if [ -z "$pr_state" ]; then
-  gh pr create --title "$pr_title"
+  if [ -n "$pr_base" ]; then
+    gh pr create --base "$pr_base" --title "$pr_title"
+  else
+    gh pr create --title "$pr_title"
+  fi
 else
   # Reconsider title on every branch update; edit if scope shifted.
   gh pr edit --title "$pr_title"
 fi
 
-# Write/edit PR body to match .github/pull_request_template.md before validation.
-# Example workflow:
-# 1) open the template and draft body content for this PR
-# 2) gh pr edit --body-file /tmp/pr_body.md
-# 3) for branch updates, re-check that title/body still match current diff
-
-tmp_pr_body=$(mktemp)
-gh pr view --json body -q .body > "$tmp_pr_body"
-(cd elixir && mix pr_body.check --file "$tmp_pr_body")
-rm -f "$tmp_pr_body"
+# Write/edit the PR body.
+# If the repo has a PR template, use it. Otherwise create a concrete body file.
+# If the repo has a documented PR-body validator, run it here.
 
 # Show PR URL for the reply
 gh pr view --json url -q .url
@@ -111,6 +124,8 @@ gh pr view --json url -q .url
 ## Notes
 
 - Do not use `--force`; only use `--force-with-lease` as the last resort.
+- Prefer the PR base and validation rules documented by the target repo over
+  generic defaults in this skill.
 - Distinguish sync problems from remote auth/permission problems:
   - Use the `pull` skill for non-fast-forward or stale-branch issues.
   - Surface auth, permissions, or workflow restrictions directly instead of
