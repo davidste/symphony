@@ -71,11 +71,17 @@ For comments and attachments:
 ```graphql
 query($id: String!) {
   issue(id: $id) {
-    comments(first: 50) { nodes { id body user { name } createdAt } }
+    comments(first: 50) { nodes { id body resolvedAt user { name } createdAt } }
     attachments(first: 20) { nodes { url title sourceType } }
   }
 }
 ```
+
+Interpretation note:
+
+- Linear comment objects expose `resolvedAt`, not `resolved`.
+- Active/unresolved comments have `resolvedAt: null`.
+- Resolved comments have a non-null `resolvedAt` timestamp.
 
 ## State transitions
 

@@ -26,6 +26,20 @@ The state machine lives in `WORKFLOW.md` — a markdown file with YAML frontmatt
 - **Correct sandbox** — the workflow is git + GitHub PR centric. Upstream's default sandbox blocks `.git/` writes, which silently breaks the entire flow. Fixed.
 - **Media uploads via Linear** — upstream references a GitHub media upload skill that doesn't ship. The workflow and Linear skill now use Linear's native `fileUpload` mutation for screenshots and recordings
 - **Setup skill** — auto-detects your repo, installs worker skills, creates Linear workflow states, and verifies everything before launch
+- **Current Linear comment schema** — the bundled `linear` skill uses `resolvedAt` for comment resolution state, which matches current Linear GraphQL behavior
+
+## Project-specific workflow overrides
+
+The shared repo should stay generic. Put product- or repo-specific policy into the target
+repository's `WORKFLOW.md`, not into the shared Symphony fork.
+
+Common examples:
+
+- override `hooks.after_create` for the real source repo and setup commands
+- lower concurrency or turn limits for a cautious first rollout
+- explicitly override legacy repo-local instructions that conflict with Symphony's control plane
+  (for example, another tracker or mandatory local automation)
+- teach workers how to launch and validate your app via a repo-local skill such as `launch-app`
 
 ## Manual setup
 
