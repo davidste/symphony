@@ -1,6 +1,6 @@
 # Symphony
 
-Fork of [openai/symphony](https://github.com/openai/symphony) with better defaults for production use and a complete onboarding flow. Push tickets to a Linear board, agents ship the code.
+Sternberg-maintained fork of [openai/symphony](https://github.com/openai/symphony) with current Linear compatibility fixes, better defaults for production-style use, and a complete onboarding flow. Push tickets to a Linear board, agents ship the code.
 
 [![Symphony demo video preview](.github/media/symphony-demo-poster.jpg)](.github/media/symphony-demo.mp4)
 
@@ -9,7 +9,7 @@ Fork of [openai/symphony](https://github.com/openai/symphony) with better defaul
 If you have an AI coding agent, one command:
 
 ```
-npx skills add odysseus0/symphony -s symphony-setup -y
+npx skills add davidste/symphony -s symphony-setup -y
 ```
 
 Then ask your agent to set up Symphony for your repo.
@@ -43,13 +43,13 @@ Common examples:
 
 ## Manual setup
 
-1. Build: `git clone https://github.com/odysseus0/symphony && cd symphony/elixir && mise trust && mise install && mise exec -- mix setup && mise exec -- mix build`
-2. Install skills: `npx skills add odysseus0/symphony -a codex -s linear land commit push pull debug --copy -y` and copy `elixir/WORKFLOW.md` to your repo
+1. Build: `git clone https://github.com/davidste/symphony && cd symphony/elixir && mise trust && mise install && mise exec -- mix setup && mise exec -- mix build`
+2. Install skills: `npx skills add davidste/symphony -a codex -s linear land commit push pull debug --copy -y` and copy `elixir/WORKFLOW.md` to your repo
 3. In WORKFLOW.md, set `tracker.project_slug` and `hooks.after_create` (clone your repo + setup commands)
 4. Add **Rework**, **Human Review**, **Merging** as custom states in Linear (Team Settings → Workflow)
 5. Commit, push, then: `mise exec -- ./bin/symphony /path/to/your-repo/WORKFLOW.md`
 
-**[Getting Started with OpenAI Symphony](https://x.com/odysseus0z/status/2031850264240800131)** — full walkthrough with context on why these defaults matter.
+For a fully owned setup, rely on this repo's README, `elixir/README.md`, and the bundled `symphony-setup` skill rather than any third-party walkthrough.
 
 ## License
 

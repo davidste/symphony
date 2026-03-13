@@ -56,7 +56,7 @@ mise exec -- elixir --version
 ## Run
 
 ```bash
-git clone https://github.com/openai/symphony
+git clone https://github.com/davidste/symphony
 cd symphony/elixir
 mise trust
 mise install
@@ -166,6 +166,18 @@ The observability UI now runs on a minimal Phoenix stack:
 - `test/`: ExUnit coverage for runtime behavior
 - `WORKFLOW.md`: in-repo workflow contract used by local runs
 - `../.codex/`: repository-local Codex skills and setup helpers
+
+## Shared fork guidance
+
+This repository is the maintained Sternberg fork. Keep shared improvements here generic:
+
+- cross-project compatibility fixes
+- reusable onboarding/setup defaults
+- tracker/tooling schema updates
+- generic operator documentation
+
+Do not bake product-specific policy into this repo. Put project-specific rules in the target
+repository's `WORKFLOW.md` and project-local skills.
 
 ## Testing
 

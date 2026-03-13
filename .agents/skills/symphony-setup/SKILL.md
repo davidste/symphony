@@ -5,7 +5,7 @@ description: Set up Symphony (OpenAI's Codex orchestrator) for a user's repo. Us
 
 # Symphony Setup
 
-Set up [Symphony](https://github.com/openai/symphony) — OpenAI's orchestrator that turns Linear tickets into pull requests via autonomous Codex agents.
+Set up [Symphony](https://github.com/davidste/symphony) — the Sternberg-maintained fork of OpenAI's orchestrator that turns Linear tickets into pull requests via autonomous Codex agents.
 
 ## Preflight checks
 
@@ -25,10 +25,10 @@ Report results to the user before proceeding.
 
 ## Build Symphony
 
-Use the [fork](https://github.com/odysseus0/symphony) — easier to get started with:
+Use the maintained fork:
 
 ```bash
-git clone https://github.com/odysseus0/symphony
+git clone https://github.com/davidste/symphony
 cd symphony/elixir
 mise trust && mise install
 mise exec -- mix setup
@@ -87,7 +87,7 @@ Install two things from Symphony into the user's repo:
 1. **Skills** — install via skills.sh (agents need these in their workspace clone):
    ```bash
    cd <user's repo>
-   npx skills add odysseus0/symphony -a codex -s linear land commit push pull debug --copy -y
+   npx skills add davidste/symphony -a codex -s linear land commit push pull debug --copy -y
    ```
    The `--copy` flag is required — symlinks would break in workspace clones. The `-s` flag excludes `symphony-setup` (meta-skill, not needed by workers).
 2. **`elixir/WORKFLOW.md`** — copy the **entire file** including the markdown body. The prompt body contains the state machine, planning protocol, and validation strategy that makes agents effective.
