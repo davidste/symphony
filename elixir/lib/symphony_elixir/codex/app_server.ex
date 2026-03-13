@@ -919,11 +919,14 @@ defmodule SymphonyElixir.Codex.AppServer do
       text == "" ->
         {:ignore, text}
 
+      json_like_line?(text) ->
+        {:malformed, text}
+
       log_line?(text) ->
         {:stream_output, text}
 
       true ->
-        {:malformed, text}
+        {:stream_output, text}
     end
   end
 
@@ -937,6 +940,10 @@ defmodule SymphonyElixir.Codex.AppServer do
   defp log_line?(text) do
     String.match?(text, ~r/^\d{4}-\d{2}-\d{2}T.*\b(?:TRACE|DEBUG|INFO|WARN|ERROR)\b/) or
       String.match?(text, ~r/^(trace|debug|info|warn|warning|error):/i)
+  end
+
+  defp json_like_line?(text) when is_binary(text) do
+    String.starts_with?(text, "{") or String.starts_with?(text, "[")
   end
 
   defp issue_context(%{id: issue_id, identifier: identifier}) do

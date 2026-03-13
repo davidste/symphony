@@ -1209,7 +1209,7 @@ defmodule SymphonyElixir.AppServerTest do
     end
   end
 
-  test "malformed turn stream output is surfaced with payload context" do
+  test "JSON-like malformed turn stream output is surfaced with payload context" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -1239,7 +1239,7 @@ defmodule SymphonyElixir.AppServerTest do
             printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-93"}}}'
             ;;
           4)
-            printf '%s\\n' '<<< definitely not json >>>'
+            printf '%s\\n' '{"method": bad-json }'
             printf '%s\\n' '{"method":"turn/completed"}'
             exit 0
             ;;
@@ -1279,7 +1279,7 @@ defmodule SymphonyElixir.AppServerTest do
       events = Process.get(:malformed_messages, []) |> Enum.reverse()
       malformed = Enum.find(events, &(&1.event == :malformed))
       assert malformed
-      assert malformed.payload =~ "definitely not json"
+      assert malformed.payload =~ "{\"method\": bad-json }"
     after
       Process.delete(:malformed_messages)
       File.rm_rf(test_root)
