@@ -83,6 +83,27 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @spec codex_command(map() | nil) :: String.t()
+  def codex_command(issue \\ nil)
+
+  def codex_command(nil), do: settings!().codex.command
+
+  def codex_command(%{title: title}) when is_binary(title) do
+    settings = settings!()
+
+    settings.codex.command_overrides
+    |> List.wrap()
+    |> Enum.find_value(settings.codex.command, fn override ->
+      prefix = override.title_prefix || ""
+
+      if String.trim(prefix) != "" and String.starts_with?(title, prefix) do
+        override.command
+      end
+    end)
+  end
+
+  def codex_command(_issue), do: settings!().codex.command
+
   @spec server_port() :: non_neg_integer() | nil
   def server_port do
     case Application.get_env(:symphony_elixir, :server_port_override) do

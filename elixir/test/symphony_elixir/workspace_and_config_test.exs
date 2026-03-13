@@ -773,6 +773,55 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_command: "codex app-server --model gpt-5.3-codex")
     assert Config.settings!().codex.command == "codex app-server --model gpt-5.3-codex"
+    assert Config.codex_command(%{title: "Normal ticket"}) == "codex app-server --model gpt-5.3-codex"
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: linear
+        endpoint: https://api.linear.app/graphql
+        api_key: token
+        project_slug: project
+        active_states:
+          - Todo
+          - In Progress
+        terminal_states:
+          - Closed
+          - Cancelled
+          - Canceled
+          - Duplicate
+          - Done
+      polling:
+        interval_ms: 30000
+      workspace:
+        root: #{Path.join(System.tmp_dir!(), "symphony_workspaces")}
+      agent:
+        max_concurrent_agents: 10
+        max_turns: 20
+        max_retry_backoff_ms: 300000
+      codex:
+        command: codex app-server --model gpt-5.3-codex
+        command_overrides:
+          - title_prefix: "Dry run:"
+            command: codex app-server --model gpt-5.3-codex-mini --config model_reasoning_effort=low
+      observability:
+        dashboard_enabled: true
+        refresh_ms: 1000
+        render_interval_ms: 16
+      ---
+
+      You are working on a Linear issue.
+      """
+    )
+
+    SymphonyElixir.WorkflowStore.force_reload()
+
+    assert Config.codex_command(%{title: "Dry run: cheap path"}) ==
+             "codex app-server --model gpt-5.3-codex-mini --config model_reasoning_effort=low"
+
+    assert Config.codex_command(%{title: "Real feature"}) == "codex app-server --model gpt-5.3-codex"
 
     explicit_root =
       Path.join(

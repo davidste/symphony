@@ -136,9 +136,44 @@ defmodule SymphonyElixir.Config.Schema do
     use Ecto.Schema
     import Ecto.Changeset
 
+    defmodule CommandOverride do
+      @moduledoc false
+      use Ecto.Schema
+      import Ecto.Changeset
+
+      @primary_key false
+      embedded_schema do
+        field(:title_prefix, :string)
+        field(:command, :string)
+      end
+
+      @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+      def changeset(schema, attrs) do
+        schema
+        |> cast(attrs, [:title_prefix, :command], empty_values: [])
+        |> validate_required([:command])
+        |> validate_prefix_present()
+      end
+
+      defp validate_prefix_present(changeset) do
+        case get_field(changeset, :title_prefix) do
+          prefix when is_binary(prefix) ->
+            if byte_size(String.trim(prefix)) > 0 do
+              changeset
+            else
+              add_error(changeset, :title_prefix, "must be present")
+            end
+
+          _ ->
+            add_error(changeset, :title_prefix, "must be present")
+        end
+      end
+    end
+
     @primary_key false
     embedded_schema do
       field(:command, :string, default: "codex app-server")
+      embeds_many(:command_overrides, CommandOverride, on_replace: :delete)
 
       field(:approval_policy, StringOrMap,
         default: %{
@@ -173,6 +208,7 @@ defmodule SymphonyElixir.Config.Schema do
         ],
         empty_values: []
       )
+      |> cast_embed(:command_overrides)
       |> validate_required([:command])
       |> validate_number(:turn_timeout_ms, greater_than: 0)
       |> validate_number(:read_timeout_ms, greater_than: 0)

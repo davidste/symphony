@@ -26,7 +26,7 @@ defmodule SymphonyElixir.Codex.AppServer do
 
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run(workspace, prompt, issue, opts \\ []) do
-    with {:ok, session} <- start_session(workspace) do
+    with {:ok, session} <- start_session(workspace, issue) do
       try do
         run_turn(session, prompt, issue, opts)
       after
@@ -35,10 +35,10 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  @spec start_session(Path.t()) :: {:ok, session()} | {:error, term()}
-  def start_session(workspace) do
+  @spec start_session(Path.t(), map() | nil) :: {:ok, session()} | {:error, term()}
+  def start_session(workspace, issue \\ nil) do
     with {:ok, expanded_workspace} <- validate_workspace_cwd(workspace),
-         {:ok, port} <- start_port(expanded_workspace) do
+         {:ok, port} <- start_port(expanded_workspace, issue) do
       metadata = port_metadata(port)
 
       with {:ok, session_policies} <- session_policies(expanded_workspace),
@@ -168,7 +168,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp start_port(workspace) do
+  defp start_port(workspace, issue) do
     executable = System.find_executable("bash")
 
     if is_nil(executable) do
@@ -181,7 +181,7 @@ defmodule SymphonyElixir.Codex.AppServer do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(Config.settings!().codex.command)],
+            args: [~c"-lc", String.to_charlist(Config.codex_command(issue))],
             cd: String.to_charlist(workspace),
             line: @port_line_bytes
           ]
