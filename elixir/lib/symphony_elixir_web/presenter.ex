@@ -149,14 +149,28 @@ defmodule SymphonyElixirWeb.Presenter do
   end
 
   defp recent_events_payload(running) do
-    [
-      %{
-        at: iso8601(running.last_codex_timestamp),
-        event: running.last_codex_event,
-        message: summarize_message(running.last_codex_message)
-      }
-    ]
-    |> Enum.reject(&is_nil(&1.at))
+    case Map.get(running, :recent_codex_messages) do
+      messages when is_list(messages) and messages != [] ->
+        messages
+        |> Enum.map(fn message ->
+          %{
+            at: iso8601(message[:timestamp]),
+            event: message[:event],
+            message: summarize_message(message)
+          }
+        end)
+        |> Enum.reject(&is_nil(&1.at))
+
+      _ ->
+        [
+          %{
+            at: iso8601(running.last_codex_timestamp),
+            event: running.last_codex_event,
+            message: summarize_message(running.last_codex_message)
+          }
+        ]
+        |> Enum.reject(&is_nil(&1.at))
+    end
   end
 
   defp summarize_message(nil), do: nil
