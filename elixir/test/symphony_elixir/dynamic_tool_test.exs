@@ -27,9 +27,179 @@ defmodule SymphonyElixir.Codex.DynamicToolTest do
     assert Jason.decode!(text) == %{
              "error" => %{
                "message" => ~s(Unsupported dynamic tool: "not_a_real_tool".),
-               "supportedTools" => ["linear_graphql", "sync_workpad"]
+               "supportedTools" => ["linear_graphql", "ensure_issue_started", "set_issue_state", "sync_workpad"]
              }
            }
+  end
+
+  test "ensure_issue_started moves Todo issues to In Progress and returns existing workpad comment id" do
+    test_pid = self()
+
+    issue_response = %{
+      "data" => %{
+        "issue" => %{
+          "id" => "issue-1",
+          "identifier" => "ENG-42",
+          "title" => "Test",
+          "url" => "https://linear.app/ENG-42",
+          "description" => "desc",
+          "state" => %{"id" => "todo", "name" => "Todo", "type" => "unstarted"},
+          "team" => %{
+            "states" => %{
+              "nodes" => [
+                %{"id" => "todo", "name" => "Todo", "type" => "unstarted"},
+                %{"id" => "in-progress", "name" => "In Progress", "type" => "started"}
+              ]
+            }
+          },
+          "comments" => %{
+            "nodes" => [
+              %{"id" => "comment-1", "body" => "## Codex Workpad\n\nExisting", "resolvedAt" => nil}
+            ]
+          }
+        }
+      }
+    }
+
+    update_response = %{
+      "data" => %{
+        "issueUpdate" => %{
+          "success" => true,
+          "issue" => %{
+            "id" => "issue-1",
+            "identifier" => "ENG-42",
+            "state" => %{"id" => "in-progress", "name" => "In Progress", "type" => "started"}
+          }
+        }
+      }
+    }
+
+    response =
+      DynamicTool.execute(
+        "ensure_issue_started",
+        %{"issue_id" => "ENG-42"},
+        linear_client: fn query, variables, _opts ->
+          send(test_pid, {:graphql, query, variables})
+
+          cond do
+            query =~ "query($id: String!)" -> {:ok, issue_response}
+            query =~ "issueUpdate" -> {:ok, update_response}
+          end
+        end
+      )
+
+    assert_received {:graphql, query1, %{"id" => "ENG-42"}}
+    assert query1 =~ "comments(first: 50)"
+    assert_received {:graphql, query2, %{"id" => "ENG-42", "stateId" => "in-progress"}}
+    assert query2 =~ "issueUpdate"
+    assert response["success"] == true
+
+    assert [%{"text" => text}] = response["contentItems"]
+
+    assert Jason.decode!(text) == %{
+             "data" => %{
+               "issue" => %{
+                 "description" => "desc",
+                 "id" => "issue-1",
+                 "identifier" => "ENG-42",
+                 "state" => %{"id" => "in-progress", "name" => "In Progress", "type" => "started"},
+                 "title" => "Test",
+                 "url" => "https://linear.app/ENG-42",
+                 "workpadCommentId" => "comment-1",
+                 "workpadFound" => true
+               },
+               "stateChanged" => true
+             }
+           }
+  end
+
+  test "ensure_issue_started does not mutate issues already in progress" do
+    test_pid = self()
+
+    response =
+      DynamicTool.execute(
+        "ensure_issue_started",
+        %{"issue_id" => "ENG-42"},
+        linear_client: fn query, variables, _opts ->
+          send(test_pid, {:graphql, query, variables})
+
+          {:ok,
+           %{
+             "data" => %{
+               "issue" => %{
+                 "id" => "issue-1",
+                 "identifier" => "ENG-42",
+                 "title" => "Test",
+                 "url" => "https://linear.app/ENG-42",
+                 "description" => "desc",
+                 "state" => %{"id" => "in-progress", "name" => "In Progress", "type" => "started"},
+                 "team" => %{"states" => %{"nodes" => [%{"id" => "in-progress", "name" => "In Progress", "type" => "started"}]}},
+                 "comments" => %{"nodes" => []}
+               }
+             }
+           }}
+        end
+      )
+
+    assert_received {:graphql, _query, %{"id" => "ENG-42"}}
+    refute_received {:graphql, _mutation, %{"id" => "ENG-42", "stateId" => _state_id}}
+    assert response["success"] == true
+  end
+
+  test "set_issue_state updates an issue by state name" do
+    test_pid = self()
+
+    response =
+      DynamicTool.execute(
+        "set_issue_state",
+        %{"issue_id" => "ENG-42", "state_name" => "Done"},
+        linear_client: fn query, variables, _opts ->
+          send(test_pid, {:graphql, query, variables})
+
+          cond do
+            query =~ "team { states" ->
+              {:ok,
+               %{
+                 "data" => %{
+                   "issue" => %{
+                     "id" => "issue-1",
+                     "identifier" => "ENG-42",
+                     "state" => %{"id" => "in-progress", "name" => "In Progress", "type" => "started"},
+                     "team" => %{
+                       "states" => %{
+                         "nodes" => [
+                           %{"id" => "done", "name" => "Done", "type" => "completed"},
+                           %{"id" => "in-progress", "name" => "In Progress", "type" => "started"}
+                         ]
+                       }
+                     }
+                   }
+                 }
+               }}
+
+            query =~ "issueUpdate" ->
+              {:ok,
+               %{
+                 "data" => %{
+                   "issueUpdate" => %{
+                     "success" => true,
+                     "issue" => %{
+                       "id" => "issue-1",
+                       "identifier" => "ENG-42",
+                       "state" => %{"id" => "done", "name" => "Done", "type" => "completed"}
+                     }
+                   }
+                 }
+               }}
+          end
+        end
+      )
+
+    assert_received {:graphql, query1, %{"id" => "ENG-42"}}
+    assert query1 =~ "team { states"
+    assert_received {:graphql, query2, %{"id" => "ENG-42", "stateId" => "done"}}
+    assert query2 =~ "issueUpdate"
+    assert response["success"] == true
   end
 
   test "linear_graphql returns successful GraphQL responses as tool text" do

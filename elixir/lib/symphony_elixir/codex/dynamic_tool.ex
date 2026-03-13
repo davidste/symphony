@@ -6,6 +6,8 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   alias SymphonyElixir.Linear.Client
 
   @linear_graphql_tool "linear_graphql"
+  @ensure_issue_started_tool "ensure_issue_started"
+  @set_issue_state_tool "set_issue_state"
   @linear_graphql_description """
   Execute a raw GraphQL query or mutation against Linear using Symphony's configured auth.
   """
@@ -22,6 +24,84 @@ defmodule SymphonyElixir.Codex.DynamicTool do
         "type" => ["object", "null"],
         "description" => "Optional GraphQL variables object.",
         "additionalProperties" => true
+      }
+    }
+  }
+
+  @ensure_issue_started_description """
+  Fetch a compact Linear issue startup snapshot, find an existing unresolved workpad comment, and move the issue from Todo to a target state if needed.
+  """
+  @ensure_issue_started_query """
+  query($id: String!) {
+    issue(id: $id) {
+      id
+      identifier
+      title
+      url
+      description
+      state { id name type }
+      team {
+        states { nodes { id name type } }
+      }
+      comments(first: 50) {
+        nodes { id body resolvedAt }
+      }
+    }
+  }
+  """
+  @ensure_issue_started_update """
+  mutation($id: String!, $stateId: String!) {
+    issueUpdate(id: $id, input: { stateId: $stateId }) {
+      success
+      issue { id identifier state { id name type } }
+    }
+  }
+  """
+  @ensure_issue_started_input_schema %{
+    "type" => "object",
+    "additionalProperties" => false,
+    "required" => ["issue_id"],
+    "properties" => %{
+      "issue_id" => %{
+        "type" => "string",
+        "description" => "Linear issue identifier (e.g. \"ENG-123\") or internal UUID."
+      },
+      "target_state" => %{
+        "type" => "string",
+        "description" => "State name to ensure when the issue is currently Todo. Defaults to \"In Progress\"."
+      },
+      "workpad_marker" => %{
+        "type" => "string",
+        "description" => "Heading text used to detect an existing workpad comment. Defaults to \"## Codex Workpad\"."
+      }
+    }
+  }
+
+  @set_issue_state_description """
+  Move a Linear issue to the named state by resolving the state ID through the issue's team configuration.
+  """
+  @set_issue_state_query """
+  query($id: String!) {
+    issue(id: $id) {
+      id
+      identifier
+      state { id name type }
+      team { states { nodes { id name type } } }
+    }
+  }
+  """
+  @set_issue_state_input_schema %{
+    "type" => "object",
+    "additionalProperties" => false,
+    "required" => ["issue_id", "state_name"],
+    "properties" => %{
+      "issue_id" => %{
+        "type" => "string",
+        "description" => "Linear issue identifier (e.g. \"ENG-123\") or internal UUID."
+      },
+      "state_name" => %{
+        "type" => "string",
+        "description" => "Target Linear state name, for example \"Done\" or \"In Progress\"."
       }
     }
   }
@@ -56,6 +136,12 @@ defmodule SymphonyElixir.Codex.DynamicTool do
       @linear_graphql_tool ->
         execute_linear_graphql(arguments, opts)
 
+      @ensure_issue_started_tool ->
+        execute_ensure_issue_started(arguments, opts)
+
+      @set_issue_state_tool ->
+        execute_set_issue_state(arguments, opts)
+
       @sync_workpad_tool ->
         execute_sync_workpad(arguments, opts)
 
@@ -78,6 +164,16 @@ defmodule SymphonyElixir.Codex.DynamicTool do
         "inputSchema" => @linear_graphql_input_schema
       },
       %{
+        "name" => @ensure_issue_started_tool,
+        "description" => @ensure_issue_started_description,
+        "inputSchema" => @ensure_issue_started_input_schema
+      },
+      %{
+        "name" => @set_issue_state_tool,
+        "description" => @set_issue_state_description,
+        "inputSchema" => @set_issue_state_input_schema
+      },
+      %{
         "name" => @sync_workpad_tool,
         "description" => @sync_workpad_description,
         "inputSchema" => @sync_workpad_input_schema
@@ -94,6 +190,41 @@ defmodule SymphonyElixir.Codex.DynamicTool do
     else
       {:error, reason} ->
         failure_response(tool_error_payload(reason))
+    end
+  end
+
+  defp execute_ensure_issue_started(arguments, opts) do
+    linear_client = Keyword.get(opts, :linear_client, &Client.graphql/3)
+
+    with {:ok, issue_id, target_state, workpad_marker} <- normalize_ensure_issue_started_args(arguments),
+         {:ok, response} <- linear_client.(@ensure_issue_started_query, %{"id" => issue_id}, []),
+         {:ok, issue} <- extract_issue_snapshot(response),
+         {:ok, issue, state_changed} <-
+           maybe_move_issue(linear_client, issue, issue_id, target_state, @ensure_issue_started_update) do
+      graphql_response(%{
+        "data" => %{
+          "issue" => issue_start_payload(issue, workpad_marker),
+          "stateChanged" => state_changed
+        }
+      })
+    else
+      {:error, reason} -> failure_response(tool_error_payload(reason))
+    end
+  end
+
+  defp execute_set_issue_state(arguments, opts) do
+    linear_client = Keyword.get(opts, :linear_client, &Client.graphql/3)
+
+    with {:ok, issue_id, state_name} <- normalize_set_issue_state_args(arguments),
+         {:ok, response} <- linear_client.(@set_issue_state_query, %{"id" => issue_id}, []),
+         {:ok, issue} <- extract_issue_snapshot(response),
+         {:ok, target_state_id} <- find_state_id(issue, state_name),
+         {:ok, update_response} <-
+           linear_client.(@ensure_issue_started_update, %{"id" => issue_id, "stateId" => target_state_id}, []),
+         {:ok, updated_issue} <- extract_updated_issue(update_response) do
+      graphql_response(%{"data" => %{"issue" => compact_issue_payload(updated_issue)}})
+    else
+      {:error, reason} -> failure_response(tool_error_payload(reason))
     end
   end
 
@@ -120,6 +251,34 @@ defmodule SymphonyElixir.Codex.DynamicTool do
 
   defp normalize_sync_workpad_args(_args) do
     {:error, {:sync_workpad, "`issue_id` and `file_path` are required"}}
+  end
+
+  defp normalize_ensure_issue_started_args(%{} = args) do
+    with {:ok, issue_id} <- required_string_arg(args, "issue_id") do
+      {:ok, issue_id, optional_string_arg(args, "target_state") || "In Progress", optional_string_arg(args, "workpad_marker") || "## Codex Workpad"}
+    end
+  end
+
+  defp normalize_ensure_issue_started_args(_args) do
+    {:error, {:ensure_issue_started, "`issue_id` is required"}}
+  end
+
+  defp normalize_set_issue_state_args(%{} = args) do
+    with {:ok, issue_id} <- required_string_arg(args, "issue_id"),
+         {:ok, state_name} <- required_set_issue_state_arg(args, "state_name") do
+      {:ok, issue_id, state_name}
+    end
+  end
+
+  defp normalize_set_issue_state_args(_args) do
+    {:error, {:set_issue_state, "`issue_id` and `state_name` are required"}}
+  end
+
+  defp required_set_issue_state_arg(args, key) when is_map(args) do
+    case optional_string_arg(args, key) do
+      nil -> {:error, {:set_issue_state, "`#{key}` is required"}}
+      value -> {:ok, value}
+    end
   end
 
   defp required_string_arg(args, key) when is_map(args) do
@@ -149,6 +308,97 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   end
 
   defp normalize_optional_string(_value), do: nil
+
+  defp extract_issue_snapshot(%{"data" => %{"issue" => nil}}), do: {:error, {:linear_issue, "issue not found"}}
+  defp extract_issue_snapshot(%{"data" => %{"issue" => issue}}) when is_map(issue), do: {:ok, issue}
+  defp extract_issue_snapshot(_response), do: {:error, {:linear_issue, "issue payload missing from response"}}
+
+  defp extract_updated_issue(%{"data" => %{"issueUpdate" => %{"issue" => issue, "success" => true}}})
+       when is_map(issue),
+       do: {:ok, issue}
+
+  defp extract_updated_issue(%{"data" => %{"issueUpdate" => %{"success" => false}}}),
+    do: {:error, {:linear_issue, "issue update failed"}}
+
+  defp extract_updated_issue(_response),
+    do: {:error, {:linear_issue, "updated issue payload missing from response"}}
+
+  defp maybe_move_issue(linear_client, issue, issue_id, target_state, update_query) do
+    current_state = get_in(issue, ["state", "name"])
+
+    cond do
+      current_state == target_state ->
+        {:ok, issue, false}
+
+      current_state == "Todo" ->
+        with {:ok, target_state_id} <- find_state_id(issue, target_state),
+             {:ok, response} <- linear_client.(update_query, %{"id" => issue_id, "stateId" => target_state_id}, []),
+             {:ok, updated_issue} <- extract_updated_issue(response) do
+          {:ok, Map.put(issue, "state", updated_issue["state"]), true}
+        end
+
+      true ->
+        {:ok, issue, false}
+    end
+  end
+
+  defp find_state_id(issue, state_name) do
+    issue
+    |> get_in(["team", "states", "nodes"])
+    |> List.wrap()
+    |> Enum.find_value(fn state ->
+      if get_in(state, ["name"]) == state_name, do: get_in(state, ["id"]), else: nil
+    end)
+    |> case do
+      nil -> {:error, {:linear_issue, "team does not contain state `#{state_name}`"}}
+      state_id -> {:ok, state_id}
+    end
+  end
+
+  defp issue_start_payload(issue, workpad_marker) do
+    workpad_comment = find_workpad_comment(issue, workpad_marker)
+
+    %{
+      "id" => issue["id"],
+      "identifier" => issue["identifier"],
+      "title" => issue["title"],
+      "url" => issue["url"],
+      "description" => issue["description"],
+      "state" => compact_state_payload(issue["state"]),
+      "workpadCommentId" => workpad_comment && workpad_comment["id"],
+      "workpadFound" => not is_nil(workpad_comment)
+    }
+  end
+
+  defp compact_issue_payload(issue) do
+    %{
+      "id" => issue["id"],
+      "identifier" => issue["identifier"],
+      "state" => compact_state_payload(issue["state"])
+    }
+  end
+
+  defp compact_state_payload(nil), do: nil
+
+  defp compact_state_payload(state) do
+    %{
+      "id" => state["id"],
+      "name" => state["name"],
+      "type" => state["type"]
+    }
+  end
+
+  defp find_workpad_comment(issue, workpad_marker) do
+    issue
+    |> get_in(["comments", "nodes"])
+    |> List.wrap()
+    |> Enum.find(fn comment ->
+      is_nil(comment["resolvedAt"]) and
+        comment["body"]
+        |> to_string()
+        |> String.starts_with?(workpad_marker)
+    end)
+  end
 
   defp read_workpad_file(path) do
     case File.read(path) do
@@ -242,6 +492,18 @@ defmodule SymphonyElixir.Codex.DynamicTool do
 
   defp tool_error_payload({:sync_workpad, message}) do
     %{"error" => %{"message" => "sync_workpad: #{message}"}}
+  end
+
+  defp tool_error_payload({:ensure_issue_started, message}) do
+    %{"error" => %{"message" => "ensure_issue_started: #{message}"}}
+  end
+
+  defp tool_error_payload({:set_issue_state, message}) do
+    %{"error" => %{"message" => "set_issue_state: #{message}"}}
+  end
+
+  defp tool_error_payload({:linear_issue, message}) do
+    %{"error" => %{"message" => message}}
   end
 
   defp tool_error_payload(:missing_query) do
