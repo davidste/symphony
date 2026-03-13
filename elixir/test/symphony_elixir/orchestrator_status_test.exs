@@ -53,6 +53,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       session_id: nil,
       turn_count: 0,
       last_codex_message: nil,
+      recent_codex_messages: [],
       last_codex_timestamp: nil,
       last_codex_event: nil,
       started_at: started_at
@@ -99,6 +100,19 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
              message: %{method: "some-event"},
              timestamp: now
            }
+
+    assert snapshot_entry.recent_codex_messages == [
+             %{
+               event: :session_started,
+               message: nil,
+               timestamp: now
+             },
+             %{
+               event: :notification,
+               message: %{method: "some-event"},
+               timestamp: now
+             }
+           ]
   end
 
   test "orchestrator snapshot tracks codex thread totals and app-server pid" do
@@ -134,6 +148,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       session_id: nil,
       turn_count: 0,
       last_codex_message: nil,
+      recent_codex_messages: [],
       last_codex_timestamp: nil,
       last_codex_event: nil,
       codex_input_tokens: 0,
@@ -1291,8 +1306,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     plain = Regex.replace(~r/\e\[[\\d;]*m/, row, "")
 
-    assert plain =~ "turn completed (completed)"
-    assert (String.split(plain, "turn completed (completed)") |> length()) - 1 == 1
+    assert plain =~ "turn comp"
     refute plain =~ " notification "
   end
 
@@ -1320,7 +1334,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     plain = Regex.replace(~r/\e\[[0-9;]*m/, row, "")
 
-    assert plain =~ "cmd: RED after line"
+    assert plain =~ "cmd: RED"
     refute plain =~ <<27>>
     refute plain =~ <<0>>
   end

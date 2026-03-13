@@ -14,6 +14,7 @@ defmodule SymphonyElixir.Orchestrator do
   @failure_retry_base_ms 10_000
   # Slightly above the dashboard render interval so "checking now…" can render.
   @poll_transition_render_delay_ms 20
+  @recent_codex_events_limit 20
   @empty_codex_totals %{
     input_tokens: 0,
     output_tokens: 0,
@@ -667,6 +668,7 @@ defmodule SymphonyElixir.Orchestrator do
             issue: issue,
             session_id: nil,
             last_codex_message: nil,
+            recent_codex_messages: [],
             last_codex_timestamp: nil,
             last_codex_event: nil,
             codex_app_server_pid: nil,
@@ -991,6 +993,7 @@ defmodule SymphonyElixir.Orchestrator do
           started_at: metadata.started_at,
           last_codex_timestamp: metadata.last_codex_timestamp,
           last_codex_message: metadata.last_codex_message,
+          recent_codex_messages: Map.get(metadata, :recent_codex_messages, []),
           last_codex_event: metadata.last_codex_event,
           runtime_seconds: running_seconds(metadata.started_at, now)
         }
@@ -1047,11 +1050,14 @@ defmodule SymphonyElixir.Orchestrator do
     last_reported_output = Map.get(running_entry, :codex_last_reported_output_tokens, 0)
     last_reported_total = Map.get(running_entry, :codex_last_reported_total_tokens, 0)
     turn_count = Map.get(running_entry, :turn_count, 0)
+    recent_codex_messages = Map.get(running_entry, :recent_codex_messages, [])
+    summarized_update = summarize_codex_update(update)
 
     {
       Map.merge(running_entry, %{
         last_codex_timestamp: timestamp,
-        last_codex_message: summarize_codex_update(update),
+        last_codex_message: summarized_update,
+        recent_codex_messages: append_recent_codex_message(recent_codex_messages, summarized_update),
         session_id: session_id_for_update(running_entry.session_id, update),
         last_codex_event: event,
         codex_app_server_pid: codex_app_server_pid_for_update(codex_app_server_pid, update),
@@ -1066,6 +1072,13 @@ defmodule SymphonyElixir.Orchestrator do
       token_delta
     }
   end
+
+  defp append_recent_codex_message(existing, message) when is_list(existing) do
+    (existing ++ [message])
+    |> Enum.take(-@recent_codex_events_limit)
+  end
+
+  defp append_recent_codex_message(_existing, message), do: [message]
 
   defp codex_app_server_pid_for_update(_existing, %{codex_app_server_pid: pid})
        when is_binary(pid),
