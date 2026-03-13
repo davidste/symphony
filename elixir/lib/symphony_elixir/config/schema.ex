@@ -113,6 +113,7 @@ defmodule SymphonyElixir.Config.Schema do
       field(:max_turns, :integer, default: 20)
       field(:max_retry_backoff_ms, :integer, default: 300_000)
       field(:max_concurrent_agents_by_state, :map, default: %{})
+      field(:serial_title_prefixes, {:array, :string}, default: [])
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -120,14 +121,22 @@ defmodule SymphonyElixir.Config.Schema do
       schema
       |> cast(
         attrs,
-        [:max_concurrent_agents, :max_turns, :max_retry_backoff_ms, :max_concurrent_agents_by_state],
+        [
+          :max_concurrent_agents,
+          :max_turns,
+          :max_retry_backoff_ms,
+          :max_concurrent_agents_by_state,
+          :serial_title_prefixes
+        ],
         empty_values: []
       )
       |> validate_number(:max_concurrent_agents, greater_than: 0)
       |> validate_number(:max_turns, greater_than: 0)
       |> validate_number(:max_retry_backoff_ms, greater_than: 0)
       |> update_change(:max_concurrent_agents_by_state, &Schema.normalize_state_limits/1)
+      |> update_change(:serial_title_prefixes, &Schema.normalize_title_prefixes/1)
       |> Schema.validate_state_limits(:max_concurrent_agents_by_state)
+      |> Schema.validate_title_prefixes(:serial_title_prefixes)
     end
   end
 
@@ -302,6 +311,35 @@ defmodule SymphonyElixir.Config.Schema do
 
       {:error, changeset} ->
         {:error, {:invalid_workflow_config, format_errors(changeset)}}
+    end
+  end
+
+  @spec normalize_title_prefixes(term()) :: [String.t()]
+  def normalize_title_prefixes(prefixes) when is_list(prefixes) do
+    prefixes
+    |> Enum.map(fn
+      prefix when is_binary(prefix) -> String.trim(prefix)
+      other -> other
+    end)
+    |> Enum.filter(&is_binary/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  def normalize_title_prefixes(_prefixes), do: []
+
+  @spec validate_title_prefixes(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
+  def validate_title_prefixes(changeset, field) do
+    case get_field(changeset, field) do
+      prefixes when is_list(prefixes) ->
+        if Enum.any?(prefixes, &(not is_binary(&1) or String.trim(&1) == "")) do
+          add_error(changeset, field, "title prefixes must be non-empty strings")
+        else
+          changeset
+        end
+
+      _ ->
+        add_error(changeset, field, "title prefixes must be a list")
     end
   end
 

@@ -535,7 +535,8 @@ defmodule SymphonyElixir.Orchestrator do
       !MapSet.member?(claimed, issue.id) and
       !Map.has_key?(running, issue.id) and
       available_slots(state) > 0 and
-      state_slots_available?(issue, running)
+      state_slots_available?(issue, running) and
+      title_prefix_slots_available?(issue, running)
   end
 
   defp should_dispatch_issue?(_issue, _state, _active_states, _terminal_states), do: false
@@ -547,6 +548,29 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp state_slots_available?(_issue, _running), do: false
+
+  defp title_prefix_slots_available?(%Issue{title: title}, running)
+       when is_binary(title) and is_map(running) do
+    matching_prefix =
+      Config.settings!().agent.serial_title_prefixes
+      |> Enum.find(fn prefix -> String.starts_with?(title, prefix) end)
+
+    case matching_prefix do
+      nil ->
+        true
+
+      prefix ->
+        Enum.all?(running, fn
+          {_id, %{issue: %Issue{title: running_title}}} when is_binary(running_title) ->
+            not String.starts_with?(running_title, prefix)
+
+          _ ->
+            true
+        end)
+    end
+  end
+
+  defp title_prefix_slots_available?(_issue, _running), do: true
 
   defp running_issue_count_for_state(running, issue_state) when is_map(running) do
     normalized_state = normalize_issue_state(issue_state)

@@ -1004,6 +1004,51 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Config.max_concurrent_agents_for_state("In Review") == 2
     assert Config.max_concurrent_agents_for_state("Closed") == 10
     assert Config.max_concurrent_agents_for_state(:not_a_string) == 10
+
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: linear
+        endpoint: https://api.linear.app/graphql
+        api_key: token
+        project_slug: project
+        active_states:
+          - Todo
+          - In Progress
+        terminal_states:
+          - Closed
+          - Cancelled
+          - Canceled
+          - Duplicate
+          - Done
+      polling:
+        interval_ms: 30000
+      workspace:
+        root: #{Path.join(System.tmp_dir!(), "symphony_workspaces")}
+      agent:
+        max_concurrent_agents: 10
+        max_turns: 20
+        max_retry_backoff_ms: 300000
+        serial_title_prefixes:
+          - "Dry run:"
+          - "Migration:"
+      codex:
+        command: codex app-server
+      observability:
+        dashboard_enabled: true
+        refresh_ms: 1000
+        render_interval_ms: 16
+      ---
+
+      You are working on a Linear issue.
+      """
+    )
+
+    SymphonyElixir.WorkflowStore.force_reload()
+
+    assert Config.settings!().agent.serial_title_prefixes == ["Dry run:", "Migration:"]
   end
 
   test "schema helpers cover custom type and state limit validation" do
@@ -1039,6 +1084,11 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              limits: {"limits must be positive integers", []}
            ]
 
+    assert Schema.normalize_title_prefixes([" Dry run: ", "", "Dry run:", :bad, "Migration:"]) == [
+             "Dry run:",
+             "Migration:"
+           ]
+
     invalid_override_changeset =
       %Codex.CommandOverride{}
       |> Codex.CommandOverride.changeset(%{"command" => "codex app-server"})
@@ -1050,6 +1100,90 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       |> Codex.CommandOverride.changeset(%{"title_prefix" => "   ", "command" => "codex app-server"})
 
     assert {"must be present", _} = blank_override_changeset.errors[:title_prefix]
+
+    title_prefix_changeset =
+      {%{}, %{prefixes: {:array, :string}}}
+      |> Changeset.cast(%{prefixes: ["ok", "   "]}, [:prefixes], empty_values: [])
+      |> Changeset.update_change(:prefixes, &Schema.normalize_title_prefixes/1)
+      |> Schema.validate_title_prefixes(:prefixes)
+
+    assert title_prefix_changeset.errors == []
+  end
+
+  test "serial title prefixes prevent dispatching matching issues in parallel" do
+    File.write!(
+      Workflow.workflow_file_path(),
+      """
+      ---
+      tracker:
+        kind: linear
+        endpoint: https://api.linear.app/graphql
+        api_key: token
+        project_slug: project
+        active_states:
+          - Todo
+          - In Progress
+        terminal_states:
+          - Closed
+          - Cancelled
+          - Canceled
+          - Duplicate
+          - Done
+      polling:
+        interval_ms: 30000
+      workspace:
+        root: #{Path.join(System.tmp_dir!(), "symphony_workspaces")}
+      agent:
+        max_concurrent_agents: 10
+        max_turns: 20
+        max_retry_backoff_ms: 300000
+        serial_title_prefixes:
+          - "Dry run:"
+      codex:
+        command: codex app-server
+      observability:
+        dashboard_enabled: true
+        refresh_ms: 1000
+        render_interval_ms: 16
+      ---
+
+      You are working on a Linear issue.
+      """
+    )
+
+    SymphonyElixir.WorkflowStore.force_reload()
+
+    running_issue = %Issue{
+      id: "run-1",
+      identifier: "MT-1",
+      title: "Dry run: existing",
+      state: "In Progress"
+    }
+
+    state = %Orchestrator.State{
+      max_concurrent_agents: 3,
+      running: %{"run-1" => %{issue: running_issue}},
+      claimed: MapSet.new(),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    blocked_issue = %Issue{
+      id: "run-2",
+      identifier: "MT-2",
+      title: "Dry run: second",
+      state: "Todo"
+    }
+
+    normal_issue = %Issue{
+      id: "run-3",
+      identifier: "MT-3",
+      title: "Feature: normal",
+      state: "Todo"
+    }
+
+    refute Orchestrator.should_dispatch_issue_for_test(blocked_issue, state)
+    assert Orchestrator.should_dispatch_issue_for_test(normal_issue, state)
   end
 
   test "schema parse normalizes policy keys and env-backed fallbacks" do
