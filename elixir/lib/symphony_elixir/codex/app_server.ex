@@ -379,19 +379,40 @@ defmodule SymphonyElixir.Codex.AppServer do
         receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
 
       {:error, _reason} ->
-        log_non_json_stream_line(payload_string, "turn stream")
+        case classify_non_json_stream_line(payload_string) do
+          {:ignore, _text} ->
+            receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
 
-        emit_message(
-          on_message,
-          :malformed,
-          %{
-            payload: payload_string,
-            raw: payload_string
-          },
-          metadata_from_message(port, %{raw: payload_string})
-        )
+          {:stream_output, text} ->
+            log_non_json_stream_line(text, "turn stream")
 
-        receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
+            emit_message(
+              on_message,
+              :stream_output,
+              %{
+                payload: text,
+                raw: payload_string
+              },
+              metadata_from_message(port, %{raw: payload_string})
+            )
+
+            receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
+
+          {:malformed, text} ->
+            log_non_json_stream_line(text, "turn stream")
+
+            emit_message(
+              on_message,
+              :malformed,
+              %{
+                payload: text,
+                raw: payload_string
+              },
+              metadata_from_message(port, %{raw: payload_string})
+            )
+
+            receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
+        end
     end
   end
 
@@ -880,11 +901,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp log_non_json_stream_line(data, stream_label) do
-    text =
-      data
-      |> to_string()
-      |> String.trim()
-      |> String.slice(0, @max_stream_log_bytes)
+    text = summarize_non_json_stream_line(data)
 
     if text != "" do
       if String.match?(text, ~r/\b(error|warn|warning|failed|fatal|panic|exception)\b/i) do
@@ -893,6 +910,33 @@ defmodule SymphonyElixir.Codex.AppServer do
         Logger.debug("Codex #{stream_label} output: #{text}")
       end
     end
+  end
+
+  defp classify_non_json_stream_line(data) do
+    text = summarize_non_json_stream_line(data)
+
+    cond do
+      text == "" ->
+        {:ignore, text}
+
+      log_line?(text) ->
+        {:stream_output, text}
+
+      true ->
+        {:malformed, text}
+    end
+  end
+
+  defp summarize_non_json_stream_line(data) do
+    data
+    |> to_string()
+    |> String.trim()
+    |> String.slice(0, @max_stream_log_bytes)
+  end
+
+  defp log_line?(text) do
+    String.match?(text, ~r/^\d{4}-\d{2}-\d{2}T.*\b(?:TRACE|DEBUG|INFO|WARN|ERROR)\b/) or
+      String.match?(text, ~r/^(trace|debug|info|warn|warning|error):/i)
   end
 
   defp issue_context(%{id: issue_id, identifier: identifier}) do

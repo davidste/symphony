@@ -116,6 +116,17 @@ hooks:
 
 **Leave everything else as-is.** Sandbox, approval_policy, polling interval, and concurrency settings all have good defaults in the fork.
 
+### 3. Repo-local workflow conflicts
+
+Before finalizing `WORKFLOW.md`, inspect the target repo for local instructions that may conflict with Symphony's control plane.
+
+Examples:
+- another issue tracker or mandatory local task manager
+- repo rules that require local session bookkeeping unrelated to the ticket work
+- heavyweight archive/research directories that workers should ignore by default
+
+If you find conflicts, add explicit project-local guidance to the copied `WORKFLOW.md` so workers know what to ignore or override.
+
 ## App launch skill (if applicable)
 
 If the user's project has a UI or app that needs runtime testing, create `.agents/skills/launch-app/SKILL.md` in their repo:
