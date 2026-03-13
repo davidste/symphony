@@ -112,26 +112,43 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   end
 
   defp normalize_sync_workpad_args(%{} = args) do
-    issue_id = Map.get(args, "issue_id") || Map.get(args, :issue_id)
-    file_path = Map.get(args, "file_path") || Map.get(args, :file_path)
-    comment_id = Map.get(args, "comment_id") || Map.get(args, :comment_id)
-
-    cond do
-      not is_binary(issue_id) or issue_id == "" ->
-        {:error, {:sync_workpad, "`issue_id` is required"}}
-
-      not is_binary(file_path) or file_path == "" ->
-        {:error, {:sync_workpad, "`file_path` is required"}}
-
-      true ->
-        comment_id = if is_binary(comment_id) and comment_id != "", do: comment_id
-        {:ok, issue_id, file_path, comment_id}
+    with {:ok, issue_id} <- required_string_arg(args, "issue_id"),
+         {:ok, file_path} <- required_string_arg(args, "file_path") do
+      {:ok, issue_id, file_path, optional_string_arg(args, "comment_id")}
     end
   end
 
   defp normalize_sync_workpad_args(_args) do
     {:error, {:sync_workpad, "`issue_id` and `file_path` are required"}}
   end
+
+  defp required_string_arg(args, key) when is_map(args) do
+    case optional_string_arg(args, key) do
+      nil -> {:error, {:sync_workpad, "`#{key}` is required"}}
+      value -> {:ok, value}
+    end
+  end
+
+  defp optional_string_arg(args, key) when is_map(args) and is_binary(key) do
+    args
+    |> Map.get(key)
+    |> normalize_optional_string()
+    |> case do
+      nil -> args |> Map.get(String.to_atom(key)) |> normalize_optional_string()
+      value -> value
+    end
+  end
+
+  defp optional_string_arg(_args, _key), do: nil
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_optional_string(_value), do: nil
 
   defp read_workpad_file(path) do
     case File.read(path) do
