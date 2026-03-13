@@ -84,10 +84,10 @@ defmodule SymphonyElixir.Config do
   end
 
   @spec codex_command() :: String.t()
-  @spec codex_command(map() | nil) :: String.t()
-  def codex_command(issue \\ nil)
+  def codex_command, do: settings!().codex.command
 
-  def codex_command(nil), do: settings!().codex.command
+  @spec codex_command(map() | nil) :: String.t()
+  def codex_command(nil), do: codex_command()
 
   def codex_command(%{title: title}) when is_binary(title) do
     settings = settings!()
@@ -103,7 +103,7 @@ defmodule SymphonyElixir.Config do
     end)
   end
 
-  def codex_command(_issue), do: settings!().codex.command
+  def codex_command(_issue), do: codex_command()
 
   @spec server_port() :: non_neg_integer() | nil
   def server_port do
