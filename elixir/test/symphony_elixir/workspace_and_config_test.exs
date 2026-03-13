@@ -1089,6 +1089,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              "Migration:"
            ]
 
+    assert Schema.normalize_title_prefixes(:bad) == []
+
     invalid_override_changeset =
       %Codex.CommandOverride{}
       |> Codex.CommandOverride.changeset(%{"command" => "codex app-server"})
@@ -1108,6 +1110,21 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       |> Schema.validate_title_prefixes(:prefixes)
 
     assert title_prefix_changeset.errors == []
+
+    blank_title_prefix_changeset =
+      {%{}, %{prefixes: {:array, :string}}}
+      |> Changeset.cast(%{prefixes: ["ok", "   "]}, [:prefixes], empty_values: [])
+      |> Schema.validate_title_prefixes(:prefixes)
+
+    assert {"title prefixes must be non-empty strings", _} =
+             blank_title_prefix_changeset.errors[:prefixes]
+
+    invalid_title_prefix_changeset =
+      {%{}, %{prefixes: {:array, :string}}}
+      |> Changeset.cast(%{prefixes: :bad}, [:prefixes], empty_values: [])
+      |> Schema.validate_title_prefixes(:prefixes)
+
+    assert {"title prefixes must be a list", _} = invalid_title_prefix_changeset.errors[:prefixes]
   end
 
   test "serial title prefixes prevent dispatching matching issues in parallel" do
