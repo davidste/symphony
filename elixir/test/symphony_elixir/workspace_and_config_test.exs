@@ -1038,6 +1038,18 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              limits: {"state names must not be blank", []},
              limits: {"limits must be positive integers", []}
            ]
+
+    invalid_override_changeset =
+      %Codex.CommandOverride{}
+      |> Codex.CommandOverride.changeset(%{"command" => "codex app-server"})
+
+    assert {"must be present", _} = invalid_override_changeset.errors[:title_prefix]
+
+    blank_override_changeset =
+      %Codex.CommandOverride{}
+      |> Codex.CommandOverride.changeset(%{"title_prefix" => "   ", "command" => "codex app-server"})
+
+    assert {"must be present", _} = blank_override_changeset.errors[:title_prefix]
   end
 
   test "schema parse normalizes policy keys and env-backed fallbacks" do
